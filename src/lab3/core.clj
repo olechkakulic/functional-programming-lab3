@@ -9,9 +9,7 @@
 (defn parse-int [s]
   (Integer/parseInt s))
 
-(defn parse-args
-  "Парсер аргументов командной строки"
-  [args]
+(defn parse-args [args]
   (loop [m    {:linear? false
                :newton? false
                :step    1.0
@@ -49,9 +47,7 @@
           :else
           (throw (ex-info (str "Unexpected argument: " a) {})))))))
 
-(defn parse-point
-  "Парсер входных данных"
-  [line]
+(defn parse-point [line]
   (let [t (str/trim line)]
     (when-not (str/blank? t)
       (let [parts (str/split t #"[;,\s\t]+")]
@@ -68,7 +64,6 @@
     (.replaceFirst s "\\.?0+$" "")))
 
 (defn -main [& args]
-  "Основная функция программы"
   (let [opts (parse-args args)]
     (loop [state (interp/init-state)]
       (if-some [line (read-line)]

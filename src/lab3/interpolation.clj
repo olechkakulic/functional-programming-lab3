@@ -1,32 +1,24 @@
 (ns lab3.interpolation)
 
-(defn limit-queue
-  "Обрезает очередь до max-size, выкидывая элементы слева."
-  [q max-size]
+(defn limit-queue [q max-size]
   (loop [q q]
     (if (<= (count q) max-size)
       q
       (recur (pop q)))))
 
 (defmulti add-point
-  "Добавляет точку в состояние алгоритма"
   (fn [alg _ _] alg))
 
 (defmulti alg-ready?
-  "Проверяет, готов ли алгоритм к интерполяции"
   (fn [alg _ _] alg))
 
 (defmulti interpolate
-  "Вычисляет значение интерполяции алгоритма в точке x"
   (fn [alg _ _ _] alg))
 
 (defmulti limit-state
-  "Ограничивает размер state"
   (fn [alg _opts _state] alg))
 
-(defn find-segment
-  "Находит пару соседних точек [p1 p2], таких что x1 <= x <= x2."
-  [points x]
+(defn find-segment [points x]
   (when (>= (count points) 2)
     (some (fn [[p1 p2]]
             (when (and (<= (:x p1) x)
@@ -34,9 +26,7 @@
               [p1 p2]))
           (partition 2 1 points))))
 
-(defn linear-value
-  "Линейная интерполяция: возвращает y или nil."
-  [points x]
+(defn linear-value [points x]
   (when-let [[p1 p2] (find-segment points x)]
     (let [x1 (:x p1)
           y1 (:y p1)
@@ -60,9 +50,7 @@
 (defmethod limit-state :linear [_ _opts state]
   (update state :points limit-queue 2))
 
-(defn choose-window
-  "Выбирает окно из n точек для интерполяции Ньютона"
-  [points n x]
+(defn choose-window [points n x]
   (let [cnt (count points)]
     (cond
       (zero? cnt) []
@@ -84,9 +72,7 @@
                       (min (- cnt n')))]
         (subvec (vec points) start (+ start n'))))))
 
-(defn divided-differences
-  "Строит таблицу разделённых разностей"
-  [points]
+(defn divided-differences [points]
   (let [xs (mapv :x points)
         ys (mapv :y points)
         n  (count points)]
@@ -105,9 +91,7 @@
                       (range 0 (- n k 1))))]
           (recur (inc k) table' acc'))))))
 
-(defn newton-eval
-  "Вычисляет значение полинома Ньютона в точке x"
-  [coeffs points x]
+(defn newton-eval [coeffs points x]
   (let [xs (mapv :x points)
         n  (count coeffs)]
     (loop [k (dec n)
@@ -119,9 +103,7 @@
                  (+ (nth coeffs k')
                     (* (- x (xs k')) acc))))))))
 
-(defn newton-value
-  "Расчёт y методом Ньютона"
-  [points n x]
+(defn newton-value [points n x]
   (let [window (choose-window points n x)
         coeffs (divided-differences window)]
     (newton-eval coeffs window x)))
@@ -155,18 +137,14 @@
    :newton {:points clojure.lang.PersistentQueue/EMPTY
             :next-x nil}})
 
-(defn interpolate-at-x
-  "Возвращает вектор структур {:alg :linear :x x :y y}, ..."
-  [opts state x]
+(defn interpolate-at-x [opts state x]
   (let [res1 (when (:linear? opts)
                (interpolate :linear (:linear state) x opts))
         res2 (when (:newton? opts)
                (interpolate :newton (:newton state) x opts))]
     (vec (remove nil? [res1 res2]))))
 
-(defn produce-outputs-for-alg
-  "Считает выходы для одного алгоритма и обновляет его стейт"
-  [alg opts alg-state max-x]
+(defn produce-outputs-for-alg [alg opts alg-state max-x]
   (if-not (alg-ready? alg opts alg-state)
     {:state alg-state
      :outputs []}
@@ -197,9 +175,7 @@
                    :outputs final-outs})
                 (recur next-x outs')))))))))
 
-(defn produce-outputs
-  "Считает выходы для всех включённых алгоритмов на отрезке [*, max-x]"
-  [opts state max-x]
+(defn produce-outputs [opts state max-x]
   (let [{lin-state :state lin-outs :outputs}
         (if (:linear? opts)
           (produce-outputs-for-alg :linear opts (:linear state) max-x)
@@ -215,9 +191,7 @@
                :newton new-state}
      :outputs outputs}))
 
-(defn process-point
-  "Обрабатывает новую точку и возвращает обновлённое состояние и выходные данные"
-  [opts state point]
+(defn process-point [opts state point]
   (let [linear-state'
         (if (:linear? opts)
           (add-point :linear (:linear state) point)
@@ -249,9 +223,7 @@
     {:state state
      :outputs outputs}))
 
-(defn finalize-outputs
-  "Вычисляет оставшиеся точки интерполяции после завершения входного потока"
-  [opts state]
+(defn finalize-outputs [opts state]
   (let [linear-max-x (some-> state :linear :points last :x)
         newton-max-x (some-> state :newton :points last :x)
         max-x (or linear-max-x newton-max-x)]
