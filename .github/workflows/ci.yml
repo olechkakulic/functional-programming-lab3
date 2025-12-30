@@ -9,9 +9,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: lab3   
     
     steps:
     - uses: actions/checkout@v3
@@ -28,8 +25,7 @@ jobs:
         path: |
           ~/.m2
           ~/.lein
-          ./lab1/target
-        key: ${{ runner.os }}-lein-${{ hashFiles('lab1/project.clj') }}
+        key: ${{ runner.os }}-lein-${{ hashFiles('**/project.clj') }}
         restore-keys: |
           ${{ runner.os }}-lein-
     
@@ -39,14 +35,51 @@ jobs:
         chmod +x lein
         sudo mv lein /usr/local/bin/
     
+    - name: Check if lab3 directory exists
+      run: |
+        echo "Current directory structure:"
+        find . -maxdepth 2 -type d
+        echo "Looking for project.clj:"
+        find . -name "project.clj" -type f
+    
     - name: Run unit tests
-      run: lein test-unit
+      run: |
+        if [ -d "lab3" ]; then
+          cd lab3 && lein test-unit
+        elif [ -f "project.clj" ]; then
+          lein test-unit
+        else
+          echo "Error: No project.clj found!"
+          exit 1
+        fi
     
     - name: Run property-based tests
-      run: lein test-property
+      run: |
+        if [ -d "lab3" ]; then
+          cd lab3 && lein test-property
+        elif [ -f "project.clj" ]; then
+          lein test-property
+        else
+          echo "Skipping property tests - no project.clj found"
+        fi
     
     - name: Run all tests
-      run: lein test
+      run: |
+        if [ -d "lab3" ]; then
+          cd lab3 && lein test
+        elif [ -f "project.clj" ]; then
+          lein test
+        else
+          echo "Error: No project.clj found!"
+          exit 1
+        fi
     
     - name: Run code quality checks
-      run: lein lint   
+      run: |
+        if [ -d "lab3" ]; then
+          cd lab3 && lein lint
+        elif [ -f "project.clj" ]; then
+          lein lint
+        else
+          echo "Skipping lint - no project.clj found"
+        fi
