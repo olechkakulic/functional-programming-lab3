@@ -2,7 +2,6 @@
   (:require [clojure.test :refer [deftest is testing]]
             [lab3.interpolation :as interp]))
 
-; Линейная интерполяция
 (deftest linear-basic-test
   (testing "Linear interpolation between two points"
     (let [points [{:x 0 :y 0}
@@ -18,8 +17,6 @@
                   {:x 4 :y 4}]]
       (is (= 3 (interp/linear-value points 3))))))
 
-; Разделённые разности
-; y = x^2
 (deftest divided-differences-test
   (testing "Divided differences for a quadratic function"
     (let [points [{:x 0 :y 0}
@@ -28,7 +25,6 @@
           coeffs (interp/divided-differences points)]
       (is (= [0 1 1] coeffs)))))
 
-; Ньютон
 (deftest newton-eval-test
   (testing "Newton polynomial for x^2"
     (let [points [{:x 1 :y 1}

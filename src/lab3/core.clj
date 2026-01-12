@@ -10,39 +10,34 @@
   (Integer/parseInt s))
 
 (defn parse-args [args]
-  (loop [m    {:linear? false
-               :newton? false
-               :step    1.0
-               :n       4}
+  (loop [algorithms []
+         opts {:step 1.0 :n 4}
          args args]
     (if (empty? args)
       (do
-        (when (and (not (:linear? m))
-                   (not (:newton? m)))
+        (when (empty? algorithms)
           (binding [*out* *err*]
             (println "Error: at least one of --linear or --newton must be given"))
           (System/exit 1))
-        (when (<= (:step m) 0)
+        (when (<= (:step opts) 0)
           (binding [*out* *err*]
             (println "Error: --step must be > 0"))
           (System/exit 1))
-        m)
+        {:algorithms algorithms :opts opts})
 
       (let [[a & rest-args] args]
         (cond
           (= a "--linear")
-          (recur (assoc m :linear? true) rest-args)
+          (recur (conj algorithms :linear) opts rest-args)
 
           (= a "--newton")
-          (recur (assoc m :newton? true) rest-args)
+          (recur (conj algorithms :newton) opts rest-args)
 
           (= a "--step")
-          (recur (assoc m :step (parse-dbl (first rest-args)))
-                 (rest rest-args))
+          (recur algorithms (assoc opts :step (parse-dbl (first rest-args))) (rest rest-args))
 
           (or (= a "-n") (= a "--n"))
-          (recur (assoc m :n (parse-int (first rest-args)))
-                 (rest rest-args))
+          (recur algorithms (assoc opts :n (parse-int (first rest-args))) (rest rest-args))
 
           :else
           (throw (ex-info (str "Unexpected argument: " a) {})))))))
@@ -64,18 +59,18 @@
     (.replaceFirst s "\\.?0+$" "")))
 
 (defn -main [& args]
-  (let [opts (parse-args args)]
-    (loop [state (interp/init-state)]
+  (let [{:keys [algorithms opts]} (parse-args args)]
+    (loop [state (interp/init-state algorithms)]
       (if-some [line (read-line)]
         (if-let [p (parse-point line)]
           (let [{:keys [state outputs]}
-                (interp/process-point opts state p)]
+                (interp/process-point algorithms opts state p)]
             (doseq [{:keys [alg x y]} outputs]
               (println (format "%s: %s %s"
                                (name alg) (fmt3 x) (fmt3 y))))
             (recur state))
           (recur state))
-        (let [{:keys [outputs]} (interp/finalize-outputs opts state)]
+        (let [{:keys [outputs]} (interp/finalize-outputs algorithms opts state)]
           (doseq [{:keys [alg x y]} outputs]
             (println (format "%s: %s %s"
                              (name alg) (fmt3 x) (fmt3 y)))))))))

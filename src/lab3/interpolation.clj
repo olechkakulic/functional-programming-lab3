@@ -6,17 +6,14 @@
       q
       (recur (pop q)))))
 
-(defmulti add-point
-  (fn [alg _ _] alg))
+(defn normalize-zero [x]
+  (let [d (double x)]
+    (if (= d -0.0) 0.0 d)))
 
-(defmulti alg-ready?
-  (fn [alg _ _] alg))
-
-(defmulti interpolate
-  (fn [alg _ _ _] alg))
-
-(defmulti limit-state
-  (fn [alg _opts _state] alg))
+(defmulti add-point (fn [alg _state _point] alg))
+(defmulti alg-ready? (fn [alg _opts _state] alg))
+(defmulti interpolate (fn [alg _state _x _opts] alg))
+(defmulti min-points (fn [alg _opts] alg))
 
 (defn find-segment [points x]
   (when (>= (count points) 2)
@@ -28,10 +25,8 @@
 
 (defn linear-value [points x]
   (when-let [[p1 p2] (find-segment points x)]
-    (let [x1 (:x p1)
-          y1 (:y p1)
-          x2 (:x p2)
-          y2 (:y p2)]
+    (let [x1 (:x p1) y1 (:y p1)
+          x2 (:x p2) y2 (:y p2)]
       (if (= x1 x2)
         y1
         (let [t (/ (- x x1) (- x2 x1))]
@@ -43,33 +38,28 @@
 (defmethod alg-ready? :linear [_ _opts state]
   (>= (count (:points state)) 2))
 
+(defmethod min-points :linear [_ _opts]
+  2)
+
 (defmethod interpolate :linear [_ state x _opts]
   (when-some [y (linear-value (:points state) x)]
     {:alg :linear :x x :y y}))
-
-(defmethod limit-state :linear [_ _opts state]
-  (update state :points limit-queue 2))
 
 (defn choose-window [points n x]
   (let [cnt (count points)]
     (cond
       (zero? cnt) []
       (<= cnt n)  (vec points)
-
       :else
-      (let [closest-idx
-            (->> points
-                 (map-indexed (fn [i p]
-                                [i (Math/abs ^double (- x (:x p)))]))
-                 (apply min-key second)
-                 first)
-
+      (let [closest-idx (->> points
+                             (map-indexed (fn [i p]
+                                            [i (Math/abs ^double (- x (:x p)))]))
+                             (apply min-key second)
+                             first)
             n' (min n cnt)
             half (quot (dec n') 2)
             raw-start (- closest-idx half)
-            start (-> raw-start
-                      (max 0)
-                      (min (- cnt n')))]
+            start (-> raw-start (max 0) (min (- cnt n')))]
         (subvec (vec points) start (+ start n'))))))
 
 (defn divided-differences [points]
@@ -80,15 +70,12 @@
       (if (= k n)
         acc
         (let [acc' (conj acc (first table))
-              table'
-              (if (= k (dec n))
-                []
-                (mapv (fn [i]
-                        (/ (- (table (inc i))
-                              (table i))
-                           (- (xs (+ i k 1))
-                              (xs i))))
-                      (range 0 (- n k 1))))]
+              table' (if (= k (dec n))
+                       []
+                       (mapv (fn [i]
+                               (/ (- (table (inc i)) (table i))
+                                  (- (xs (+ i k 1)) (xs i))))
+                             (range 0 (- n k 1))))]
           (recur (inc k) table' acc'))))))
 
 (defn newton-eval [coeffs points x]
@@ -99,9 +86,7 @@
       (if (zero? k)
         acc
         (let [k' (dec k)]
-          (recur k'
-                 (+ (nth coeffs k')
-                    (* (- x (xs k')) acc))))))))
+          (recur k' (+ (nth coeffs k') (* (- x (xs k')) acc))))))))
 
 (defn newton-value [points n x]
   (let [window (choose-window points n x)
@@ -114,120 +99,77 @@
 (defmethod alg-ready? :newton [_ opts state]
   (>= (count (:points state)) (:n opts)))
 
+(defmethod min-points :newton [_ opts]
+  (:n opts))
+
 (defmethod interpolate :newton [_ state x opts]
   (let [points (:points state)
-        n      (:n opts)]
+        n (:n opts)]
     (when (and n (>= (count points) n))
-      (let [y (newton-value points n x)]
-        {:alg :newton :x x :y y}))))
+      {:alg :newton :x x :y (newton-value points n x)})))
 
-(defmethod limit-state :newton [_ opts state]
-  (let [n (:n opts)]
-    (if n
-      (update state :points limit-queue (inc n))
-      state)))
+(defn make-alg-state []
+  {:points clojure.lang.PersistentQueue/EMPTY
+   :next-x nil})
 
-(defn normalize-zero [x]
-  (let [d (double x)]
-    (if (= d -0.0) 0.0 d)))
-
-(defn init-state []
-  {:linear {:points clojure.lang.PersistentQueue/EMPTY
-            :next-x nil}
-   :newton {:points clojure.lang.PersistentQueue/EMPTY
-            :next-x nil}})
-
-(defn interpolate-at-x [opts state x]
-  (let [res1 (when (:linear? opts)
-               (interpolate :linear (:linear state) x opts))
-        res2 (when (:newton? opts)
-               (interpolate :newton (:newton state) x opts))]
-    (vec (remove nil? [res1 res2]))))
+(defn init-state [algorithms]
+  (into {} (map (fn [alg] [alg (make-alg-state)]) algorithms)))
 
 (defn produce-outputs-for-alg [alg opts alg-state max-x]
   (if-not (alg-ready? alg opts alg-state)
-    {:state alg-state
-     :outputs []}
-    (let [step    (:step opts)
+    {:state alg-state :outputs []}
+    (let [step (:step opts)
           start-x (or (:next-x alg-state)
                       (some-> alg-state :points first :x))]
       (if (nil? start-x)
-        {:state alg-state
-         :outputs []}
-        (loop [x    start-x
+        {:state alg-state :outputs []}
+        (loop [x start-x
                outs []]
           (if (> x max-x)
-            {:state   (assoc alg-state :next-x x)
-             :outputs outs}
-            (let [res  (interpolate alg alg-state x opts)
+            {:state (assoc alg-state :next-x x) :outputs outs}
+            (let [res (interpolate alg alg-state x opts)
                   outs' (if res (conj outs res) outs)
                   next-x (+ x step)]
-              (if (>= next-x max-x)
-                (let [x-equals-max-x (< (Math/abs (- x max-x)) 1e-9)
-                      max-x-already-in-output (some #(< (Math/abs (- (:x %) max-x)) 1e-9) outs')
-                      should-output-max-x (and (not x-equals-max-x)
-                                               (not max-x-already-in-output)
-                                               (< x max-x))
-                      final-res (when should-output-max-x
-                                  (interpolate alg alg-state max-x opts))
-                      final-outs (if final-res (conj outs' final-res) outs')]
-                  {:state   (assoc alg-state :next-x next-x)
-                   :outputs final-outs})
-                (recur next-x outs')))))))))
+              (recur next-x outs'))))))))
 
-(defn produce-outputs [opts state max-x]
-  (let [{lin-state :state lin-outs :outputs}
-        (if (:linear? opts)
-          (produce-outputs-for-alg :linear opts (:linear state) max-x)
-          {:state (:linear state) :outputs []})
+(defn produce-outputs [algorithms opts state max-x]
+  (reduce
+   (fn [{:keys [state outputs]} alg]
+     (let [{new-alg-state :state alg-outputs :outputs}
+           (produce-outputs-for-alg alg opts (get state alg) max-x)]
+       {:state (assoc state alg new-alg-state)
+        :outputs (into outputs alg-outputs)}))
+   {:state state :outputs []}
+   algorithms))
 
-        {new-state :state new-outs :outputs}
-        (if (:newton? opts)
-          (produce-outputs-for-alg :newton opts (:newton state) max-x)
-          {:state (:newton state) :outputs []})
+(defn limit-alg-state [alg opts alg-state]
+  (let [max-points (inc (min-points alg opts))]
+    (update alg-state :points limit-queue max-points)))
 
-        outputs (into lin-outs new-outs)]
-    {:state   {:linear lin-state
-               :newton new-state}
-     :outputs outputs}))
+(defn process-point [algorithms opts state point]
+  (let [state-with-point
+        (reduce (fn [s alg]
+                  (update s alg #(add-point alg % point)))
+                state
+                algorithms)
 
-(defn process-point [opts state point]
-  (let [linear-state'
-        (if (:linear? opts)
-          (add-point :linear (:linear state) point)
-          (:linear state))
-
-        newton-state'
-        (if (:newton? opts)
-          (assoc (add-point :newton (:newton state) point)
-                 :n (:n opts))
-          (:newton state))
-
-        linear-state''
-        (if (:linear? opts)
-          (limit-state :linear opts linear-state')
-          linear-state')
-
-        newton-state''
-        (if (:newton? opts)
-          (limit-state :newton opts newton-state')
-          newton-state')
-
-        state' {:linear linear-state''
-                :newton newton-state''}
+        state-limited
+        (reduce (fn [s alg]
+                  (update s alg #(limit-alg-state alg opts %)))
+                state-with-point
+                algorithms)
 
         max-x (:x point)
+        {:keys [state outputs]} (produce-outputs algorithms opts state-limited max-x)]
 
-        {:keys [state outputs]}
-        (produce-outputs opts state' max-x)]
     {:state state
      :outputs outputs}))
 
-(defn finalize-outputs [opts state]
-  (let [linear-max-x (some-> state :linear :points last :x)
-        newton-max-x (some-> state :newton :points last :x)
-        max-x (or linear-max-x newton-max-x)]
+(defn finalize-outputs [algorithms opts state]
+  (let [max-x (->> algorithms
+                   (map #(some-> state (get %) :points last :x))
+                   (remove nil?)
+                   (apply max nil))]
     (if max-x
-      (produce-outputs opts state max-x)
-      {:state state
-       :outputs []})))
+      (produce-outputs algorithms opts state max-x)
+      {:state state :outputs []})))

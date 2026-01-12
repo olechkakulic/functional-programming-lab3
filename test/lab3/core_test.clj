@@ -13,11 +13,11 @@
 
 (deftest process-point-linear-test
   (testing "Stream processing: linear interpolation"
-    (let [opts   {:linear? true :newton? false :step 1 :n 4}
-          state0 (interp/init-state)
+    (let [algorithms [:linear]
+          opts {:step 1 :n 4}
+          state0 (interp/init-state algorithms)
 
-          ;; первая точка
-          {:keys [state outputs]} (interp/process-point opts state0 {:x 0 :y 0})
+          {:keys [state outputs]} (interp/process-point algorithms opts state0 {:x 0 :y 0})
           outputs (map #(-> %
                             (update :x interp/normalize-zero)
                             (update :y interp/normalize-zero))
@@ -25,8 +25,7 @@
 
       (is (= [] outputs))
 
-      ;; вторая точка
-      (let [{:keys [_ outputs]} (interp/process-point opts state {:x 1 :y 1})
+      (let [{:keys [_ outputs]} (interp/process-point algorithms opts state {:x 1 :y 1})
             outputs (map #(-> %
                               (update :x interp/normalize-zero)
                               (update :y interp/normalize-zero))

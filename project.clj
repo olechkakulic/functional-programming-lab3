@@ -21,7 +21,7 @@
                     ["cljfmt" "check"]
                     ["kibit"]
                     ["bikeshed" "--max-line-length" "120"]
-                    ["run" "-m" "clj-kondo.main" "--lint" "src" "test" "--config" "../.clj-kondo/config.edn"]]
+                    ["run" "-m" "clj-kondo.main" "--lint" "src" "test" "--config" ".clj-kondo/config.edn"]]
             "kaocha" ["run" "-m" "kaocha.runner"]
             "test" ["kaocha"]
             "test-unit" ["kaocha" "--focus" ":unit"]
