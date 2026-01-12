@@ -1,5 +1,6 @@
 (ns lab3.properties-test
-  (:require [clojure.test.check.clojure-test :refer [defspec]]
+  (:require [clojure.test :refer [deftest is testing]]
+            [clojure.test.check :as tc]
             [clojure.test.check.properties :as prop]
             [clojure.test.check.generators :as gen]
             [lab3.interpolation :as interp]))
@@ -27,42 +28,41 @@
               gen-safe-double gen-safe-double
               gen-safe-double gen-safe-double)))
 
-; проверяем совпадение с аналитикой
+(deftest linear-exactness-test
+  (testing "Linear interpolation matches analytical formula"
+    (let [result (tc/quick-check
+                  200
+                  (prop/for-all [[p1 p2] gen-sorted-two-points
+                                 x       gen-safe-double]
+                                (let [x1 (:x p1), y1 (:y p1)
+                                      x2 (:x p2), y2 (:y p2)]
+                                  (cond
+                                    (= x1 x2)
+                                    (= (interp/linear-value [p1 p2] x1) y1)
 
-(defspec linear-exactness-test
-  200
-  (prop/for-all [[p1 p2] gen-sorted-two-points
-                 x       gen-safe-double]
-                (let [x1 (:x p1), y1 (:y p1)
-                      x2 (:x p2), y2 (:y p2)]
-                  (cond
+                                    (or (< x x1) (> x x2))
+                                    true
 
-                    (= x1 x2)
-                    (= (interp/linear-value [p1 p2] x1) y1)
+                                    :else
+                                    (let [expected (+ y1 (* (/ (- x x1) (- x2 x1))
+                                                            (- y2 y1)))
+                                          actual   (interp/linear-value [p1 p2] x)]
+                                      (< (Math/abs (- actual expected)) 1e-9))))))]
+      (is (:pass? result) (str "Property test failed: " (:shrunk result))))))
 
-                    (or (< x x1) (> x x2))
-                    true
-
-                    :else
-                    (let [expected (+ y1 (* (/ (- x x1) (- x2 x1))
-                                            (- y2 y1)))
-                          actual   (interp/linear-value [p1 p2] x)]
-                      (< (Math/abs (- actual expected)) 1e-9))))))
-
-; проверяем монотонность
-
-(defspec linear-between-test
-  200
-  (prop/for-all [points gen-sorted-three-points]
-                (let [[p1 p2 p3] points
-                      x1 (:x p1)
-                      x2 (:x p2)
-                      x3 (:x p3)]
-
-                  (if (and (= x1 x2) (= x2 x3))
-                    true
-
-                    (let [mid-x (/ (+ (:x p2) (:x p3)) 2)
-                          y     (interp/linear-value points mid-x)]
-                      (and (<= (min (:y p2) (:y p3)) y)
-                           (>= (max (:y p2) (:y p3)) y)))))))
+(deftest linear-between-test
+  (testing "Linear interpolation is monotonic"
+    (let [result (tc/quick-check
+                  200
+                  (prop/for-all [points gen-sorted-three-points]
+                                (let [[p1 p2 p3] points
+                                      x1 (:x p1)
+                                      x2 (:x p2)
+                                      x3 (:x p3)]
+                                  (if (and (= x1 x2) (= x2 x3))
+                                    true
+                                    (let [mid-x (/ (+ (:x p2) (:x p3)) 2)
+                                          y     (interp/linear-value points mid-x)]
+                                      (and (<= (min (:y p2) (:y p3)) y)
+                                           (>= (max (:y p2) (:y p3)) y)))))))]
+      (is (:pass? result) (str "Property test failed: " (:shrunk result))))))
